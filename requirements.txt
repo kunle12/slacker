@@ -1,1 +1,2 @@
 requests >= 2.2.1
+autobahn[asynicio] > 0.13

@@ -17,7 +17,8 @@ import json
 import requests
 
 from slacker.utils import get_item_id_by_name
-
+from autobahn.asyncio.websocket import WebSocketClientProtocol, \
+    WebSocketClientFactory
 
 API_BASE_URL = 'https://slack.com/api/{api}'
 DEFAULT_TIMEOUT = 10
@@ -447,11 +448,11 @@ class Stars(BaseAPI):
                              'channel': channel,
                              'timestamp': timestamp
                          })
-    
+
     def list(self, user=None, count=None, page=None):
         return self.get('stars.list',
                         params={'user': user, 'count': count, 'page': page})
-    
+
     def remove(self, file_=None, file_comment=None, channel=None, timestamp=None):
         assert file_ or file_comment or channel
 
@@ -479,15 +480,33 @@ class Presence(BaseAPI):
         return self.post('presence.set', data={'presence': presence})
 
 
-class RTM(BaseAPI):
+class RTM(BaseAPI,WebSocketClientProtocol):
+    def __init__( self ):
+        self.weburl = None
+
     def start(self, simple_latest=False, no_unreads=False, mpim_aware=False):
-        return self.get('rtm.start',
+        resp = self.get('rtm.start',
                         params={
                             'simple_latest': int(simple_latest),
                             'no_unreads': int(no_unreads),
                             'mpim_aware': int(mpim_aware),
                         })
+        if resp['ok']:
+          self.wsurl = resp['url']
+        return resp
 
+    def onConnect(self, response):
+        print("RTM connected: {0}".format(response.peer))
+
+    def onOpen(self):
+        print("RTM connection open.")
+
+    def onMessage(self, payload, isBinary):
+        if not isBinary:
+            print("Text message received: {0}".format(payload.decode('utf8')))
+
+    def onClose(self, wasClean, code, reason):
+        print("RTM connection closed: {0}".format(reason))
 
 class Team(BaseAPI):
     def info(self):
