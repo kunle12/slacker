@@ -1,1 +1,4 @@
 requests >= 2.2.1
+future >= 0.15.2
+autobahn >= 0.14.0
+trollius >= 2.1
