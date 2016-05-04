@@ -19,7 +19,8 @@ from concurrent.futures import ProcessPoolExecutor
 import trollius as asyncio
 
 from slacker.utils import get_item_id_by_name
-
+from autobahn.asyncio.websocket import WebSocketClientProtocol, \
+    WebSocketClientFactory
 
 API_BASE_URL = 'https://slack.com/api/{api}'
 DEFAULT_TIMEOUT = 10
@@ -505,6 +506,7 @@ class SlackRTMProtocol(WebSocketClientProtocol):
     def onClose(self, wasClean, code, reason):
         print("WebSocket connection closed: {0}".format(reason))
 
+<<<<<<< HEAD
 class RTM(BaseAPI):
     def __init__(self, token, timeout):
         super(RTM, self).__init__(token, timeout)
@@ -531,6 +533,35 @@ class RTM(BaseAPI):
         #self.asyncLoop.close()
 
         return self.websocketData
+=======
+class RTM(BaseAPI,WebSocketClientProtocol):
+    def __init__( self ):
+        self.weburl = None
+
+    def start(self, simple_latest=False, no_unreads=False, mpim_aware=False):
+        resp = self.get('rtm.start',
+                        params={
+                            'simple_latest': int(simple_latest),
+                            'no_unreads': int(no_unreads),
+                            'mpim_aware': int(mpim_aware),
+                        })
+        if resp['ok']:
+          self.wsurl = resp['url']
+        return resp
+
+    def onConnect(self, response):
+        print("RTM connected: {0}".format(response.peer))
+
+    def onOpen(self):
+        print("RTM connection open.")
+
+    def onMessage(self, payload, isBinary):
+        if not isBinary:
+            print("Text message received: {0}".format(payload.decode('utf8')))
+
+    def onClose(self, wasClean, code, reason):
+        print("RTM connection closed: {0}".format(reason))
+>>>>>>> 210144a7974e421ca2765a9fef98294a82616fb8
 
 class Team(BaseAPI):
     def info(self):
