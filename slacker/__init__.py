@@ -14,8 +14,8 @@
 
 import json
 import requests
-from autobahn.asyncio.websocket import WebSocketClientProtocol, WebSocketClientFactory
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import Future
+from threading import Thread, current_thread
 import trollius as asyncio
 
 from slacker.utils import get_item_id_by_name
@@ -486,16 +486,17 @@ class SlackRTMProtocol(WebSocketClientProtocol):
     def onConnect(self, response):
         print("Server connected: {0}".format(response.peer))
 
-    #@asyncio.coroutine
+    @asyncio.coroutine
     def onOpen(self):
         print("WebSocket connection open.")
 
         # start sending messages every second ..
-        #while True:
-            #self.sendMessage(u"Hello, world!".encode('utf8'))
-            #self.sendMessage(b"\x00\x01\x03\x04", isBinary=True)
-            #yield from asyncio.sleep(1)
+        while True:
+            self.sendMessage(u"Hello, world!".encode('utf8'))
+            self.sendMessage(b"\x00\x01\x03\x04", isBinary=True)
+            yield asyncio.sleep(1)
 
+    @asyncio.coroutine
     def onMessage(self, payload, isBinary):
         if isBinary:
             print("Unexpected binary message received: {0} bytes".format(len(payload)))
@@ -506,12 +507,12 @@ class SlackRTMProtocol(WebSocketClientProtocol):
     def onClose(self, wasClean, code, reason):
         print("WebSocket connection closed: {0}".format(reason))
 
-<<<<<<< HEAD
 class RTM(BaseAPI):
     def __init__(self, token, timeout):
         super(RTM, self).__init__(token, timeout)
         self.websocketData = None
         self.clientFactory = None
+        self.rtm_thread = None
         self.asyncLoop = None
 
     def start(self, simple_latest=False, no_unreads=False, mpim_aware=False):
@@ -521,47 +522,26 @@ class RTM(BaseAPI):
                                     'no_unreads': int(no_unreads),
                                     'mpim_aware': int(mpim_aware),
                                         }).body
+        self.rtm_thread = Thread(target=self._start_rtm_thread)
+        self.rtm_thread.start()
+        #return self.websocketData
+
+    def stop(self):
+        if self.rtm_thread:
+            self.asyncLoop.call_soon_threadsafe(self.asyncLoop.stop)
+
+    def _start_rtm_thread(self):
         self.clientFactory = WebSocketClientFactory(self.websocketData['url'])
-        url = self.websocketData['url'][6:]
-        print "Slack RTM websocket URL {}".format(url)
+        #self.clientFactory = WebSocketClientFactory(u"ws://127.0.0.1:9090")
+        print "Slack RTM websocket URL {}".format(self.websocketData['url'])
         self.clientFactory.protocol = SlackRTMProtocol
-        self.asyncLoop = asyncio.get_event_loop()
-        coro = self.asyncLoop.create_connection(self.clientFactory, url, 443)
-        executor = ProcessPoolExecutor(2)
-        #self.asyncLoop.run_in_executor(executor, coro)
-        #self.asyncLoop.run_until_complete(coro)
-        #self.asyncLoop.close()
-
-        return self.websocketData
-=======
-class RTM(BaseAPI,WebSocketClientProtocol):
-    def __init__( self ):
-        self.weburl = None
-
-    def start(self, simple_latest=False, no_unreads=False, mpim_aware=False):
-        resp = self.get('rtm.start',
-                        params={
-                            'simple_latest': int(simple_latest),
-                            'no_unreads': int(no_unreads),
-                            'mpim_aware': int(mpim_aware),
-                        })
-        if resp['ok']:
-          self.wsurl = resp['url']
-        return resp
-
-    def onConnect(self, response):
-        print("RTM connected: {0}".format(response.peer))
-
-    def onOpen(self):
-        print("RTM connection open.")
-
-    def onMessage(self, payload, isBinary):
-        if not isBinary:
-            print("Text message received: {0}".format(payload.decode('utf8')))
-
-    def onClose(self, wasClean, code, reason):
-        print("RTM connection closed: {0}".format(reason))
->>>>>>> 210144a7974e421ca2765a9fef98294a82616fb8
+        self.asyncLoop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.asyncLoop)
+        coro = self.asyncLoop.create_connection(self.clientFactory, self.websocketData['url'])
+        #coro = self.asyncLoop.create_connection(self.clientFactory, "127.0.0.1", 9090)
+        self.asyncLoop.run_until_complete(coro)
+        self.asyncLoop.run_forever()
+        self.asyncLoop.close()
 
 class Team(BaseAPI):
     def info(self):
