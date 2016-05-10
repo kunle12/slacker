@@ -14,10 +14,8 @@
 
 import json
 import requests
-from concurrent.futures import Future
 from threading import Thread, current_thread
-import trollius as asyncio
-
+import time
 from slacker.utils import get_item_id_by_name
 from websocket import create_connection
 from ssl import SSLError
@@ -481,17 +479,14 @@ class Presence(BaseAPI):
         assert presence in Presence.TYPES, 'Invalid presence type'
         return self.post('presence.set', data={'presence': presence})
 
-class SlackRTMProtocol(object):
+class SlackRTMHandler(object):
     def __init__(self):
         pass
 
     def onUserPresenceChange(self, user, status):
         pass
 
-    def onUserMessage(self, user, mesg):
-        pass
-
-    def onUserJointChannel(self, channel, user):
+    def onUserMessage(self, channel, user, mesg):
         pass
 
 class RTM(BaseAPI):
@@ -499,9 +494,12 @@ class RTM(BaseAPI):
         super(RTM, self).__init__(token, timeout)
         self.websocketData = None
         self.rtm_thread = None
-        self.asyncLoop = None
-        self.rtm_handler = rtm_handler
+        if rtm_handler and isinstance(rtm_handler, SlackRTMHandler):
+            self.rtm_handler = rtm_handler
+        else:
+            self.rtm_handler = None
         self.is_connected = False
+        self.is_running = False
 
     def start(self, simple_latest=False, no_unreads=False, mpim_aware=False):
         self.websocketData = self.get('rtm.start',
@@ -516,9 +514,12 @@ class RTM(BaseAPI):
 
     def stop(self):
         if self.rtm_thread:
-            self.asyncLoop.call_soon_threadsafe(self.asyncLoop.stop)
+            self.is_running = False
+            self.rtm_thread.join()
+            self.rtm_thread = None #really badly done.
+        self.websocket = None
+        self.is_connected = False
 
-    @asyncio.coroutine
     def _open_connection(self, url):
         try:
             self.websocket = create_connection(url)
@@ -527,11 +528,12 @@ class RTM(BaseAPI):
             raise SlackRTMException
 
         data = None
-        while True:
+        self.is_running = True
+        while self.is_running:
             try:
                 data = self.websocket.recv().rstrip()
                 if data:
-                    yield _parse_event_data(json.loads(data))
+                    self._parse_event_data(json.loads(data))
             except SSLError as e:
                 if e.errno != 2:
                     # errno 2 occurs when trying to read or write data, but more
@@ -541,12 +543,10 @@ class RTM(BaseAPI):
                     # Python 2.7.9+ and Python 3.3+ give this its own exception,
                     # SSLWantReadError
                     raise
-            yield asyncio.sleep(1)
-        self.is_connected = False
+            time.sleep(1)
 
-    @asyncio.coroutine
     def _parse_event_data(self, data):
-        print("Text message received: {0}".format(data))
+        #print("Text message received: {0}".format(data))
         if not self.is_connected: #expect the first message to be 'hello'
             if data['type'] == 'hello':
                 self.is_connected = True
@@ -557,17 +557,12 @@ class RTM(BaseAPI):
         if self.rtm_handler:
             if data['type'] == 'presence_change':
                 self.rtm_handler.onUserPresenceChange(data['user'], data['presence'])
+            elif data['type'] == 'message' and not data.has_key('subtype'): # normal user message
+                self.rtm_handler.onUserMessage(data['channel'], data['user'], data['text'])
 
     def _start_rtm_thread(self):
         print "Slack RTM websocket URL {}".format(self.websocketData['url'])
-        self.asyncLoop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.asyncLoop)
         coro = self._open_connection(self.websocketData['url'])
-        #coro = self.asyncLoop.create_connection(self.clientFactory, "127.0.0.1", 9090)
-        self.asyncLoop.run_until_complete(coro)
-        self.asyncLoop.run_forever()
-        self.websocket = None
-        self.is_connected = False
 
 class Team(BaseAPI):
     def info(self):
