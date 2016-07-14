@@ -27,8 +27,9 @@ DEFAULT_TIMEOUT = 10
 __all__ = ['Error', 'Response', 'BaseAPI', 'API', 'Auth', 'Users', 'Groups',
            'Channels', 'Chat', 'IM', 'IncomingWebhook', 'Search', 'Files',
            'Stars', 'Emoji', 'Presence', 'RTM', 'Team', 'Reactions', 'Pins',
-           'UserGroups', 'UserGroupsUsers', 'MPIM', 'OAuth', 'DND',
-           'FilesComments', 'Slacker']
+           'UserGroups', 'UserGroupsUsers', 'MPIM', 'OAuth', 'DND', 'Bots',
+           'FilesComments', 'Reminders', 'TeamProfile', 'UsersProfile',
+           'Slacker']
 
 
 class Error(Exception):
@@ -84,7 +85,32 @@ class Auth(BaseAPI):
         return self.get('auth.test')
 
 
+class UsersProfile(BaseAPI):
+    def get(self, user=None, include_labels=False):
+        return super(UsersProfile, self).get(
+            'users.profile.get',
+            params={'user': user, 'include_labels': int(include_labels)}
+        )
+
+    def set(self, user=None, profile=None, name=None, value=None):
+        return self.post('users.profile.get',
+                         data={
+                             'user': user,
+                             'profile': profile,
+                             'name': name,
+                             'value': value
+                         })
+
+
 class Users(BaseAPI):
+    def __init__(self, *args, **kwargs):
+        super(Users, self).__init__(*args, **kwargs)
+        self._profile = UsersProfile(*args, **kwargs)
+
+    @property
+    def profile(self):
+        return self._profile
+
     def info(self, user):
         return self.get('users.info', params={'user': user})
 
@@ -259,6 +285,15 @@ class Chat(BaseAPI):
                              'icon_emoji': icon_emoji
                          })
 
+
+    def command(self, channel, command, text):
+        return self.post('chat.command',
+                         data={
+                             'channel': channel,
+                             'command': command,
+                             'text': text
+                         })
+
     def update(self, channel, ts, text, attachments=None, parse=None,
                link_names=False, as_user=None):
         # Ensure attachments are json encoded
@@ -270,7 +305,7 @@ class Chat(BaseAPI):
                              'ts': ts,
                              'text': text,
                              'attachments': attachments,
-                             'parse': None,
+                             'parse': parse,
                              'link_names': int(link_names),
                              'as_user': as_user,
                          })
@@ -564,7 +599,23 @@ class RTM(BaseAPI):
         print "Slack RTM websocket URL {}".format(self.websocketData['url'])
         coro = self._open_connection(self.websocketData['url'])
 
+class TeamProfile(BaseAPI):
+    def get(self, visibility=None):
+        return super(TeamProfile, self).get(
+            'users.profile.get',
+            params={'visibility': visibility}
+        )
+
+
 class Team(BaseAPI):
+    def __init__(self, *args, **kwargs):
+        super(Team, self).__init__(*args, **kwargs)
+        self._profile = TeamProfile(*args, **kwargs)
+
+    @property
+    def profile(self):
+        return self._profile
+
     def info(self):
         return self.get('team.info')
 
@@ -787,6 +838,32 @@ class DND(BaseAPI):
         return self.post('dnd.endSnooze')
 
 
+class Reminders(BaseAPI):
+    def add(self, text, time, user=None):
+        return self.post('reminders.add', data={
+            'text': text,
+            'time': time,
+            'user': user,
+        })
+
+    def complete(self, reminder):
+        return self.post('reminders.complete', data={'reminder': reminder})
+
+    def delete(self, reminder):
+        return self.post('reminders.delete', data={'reminder': reminder})
+
+    def info(self, reminder):
+        return self.get('reminders.info', params={'reminder': reminder})
+
+    def list(self):
+        return self.get('reminders.list')
+
+
+class Bots(BaseAPI):
+    def info(self, bot=None):
+        return self.get('bots.info', params={'bot': bot})
+
+
 class OAuth(BaseAPI):
     def access(self, client_id, client_secret, code, redirect_uri=None):
         return self.post('oauth.access',
@@ -825,6 +902,7 @@ class Slacker(object):
         self.dnd = DND(token=token, timeout=timeout)
         self.rtm = RTM(token=token, timeout=timeout)
         self.auth = Auth(token=token, timeout=timeout)
+        self.bots = Bots(token=token, timeout=timeout)
         self.chat = Chat(token=token, timeout=timeout)
         self.team = Team(token=token, timeout=timeout)
         self.pins = Pins(token=token, timeout=timeout)
@@ -837,6 +915,7 @@ class Slacker(object):
         self.groups = Groups(token=token, timeout=timeout)
         self.channels = Channels(token=token, timeout=timeout)
         self.presence = Presence(token=token, timeout=timeout)
+        self.reminders = Reminders(token=token, timeout=timeout)
         self.reactions = Reactions(token=token, timeout=timeout)
         self.usergroups = UserGroups(token=token, timeout=timeout)
         self.incomingwebhook = IncomingWebhook(url=incoming_webhook_url,
