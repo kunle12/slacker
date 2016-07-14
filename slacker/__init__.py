@@ -535,6 +535,12 @@ class RTM(BaseAPI):
             self.rtm_handler = None
         self.is_connected = False
         self.is_running = False
+        self.usernames = {}
+        self.channelnames = {}
+
+    def set_user_and_channle_info( self, usernames, channelnames ):
+        self.usernames = usernames
+        self.channelnames = channelnames
 
     def start(self, simple_latest=False, no_unreads=False, mpim_aware=False):
         self.websocketData = self.get('rtm.start',
@@ -591,13 +597,33 @@ class RTM(BaseAPI):
 
         if self.rtm_handler:
             if data['type'] == 'presence_change':
-                self.rtm_handler.onUserPresenceChange(data['user'], data['presence'])
+                if data['user'] in self.usernames:
+                    user = self.usernames[data['user']]
+                else:
+                    user = data['user']
+                self.rtm_handler.onUserPresenceChange(user, data['presence'])
             elif data['type'] == 'message' and not data.has_key('subtype'): # normal user message
-                self.rtm_handler.onUserMessage(data['channel'], data['user'], data['text'])
+                if data['channel'] in self.channelnames:
+                    chan = self.channelnames[data['channel']]
+                else:
+                    chan = data['channel']
+                if data['user'] in self.usernames:
+                    user = self.usernames[data['user']]
+                else:
+                    user = data['user']
+                self.rtm_handler.onUserMessage(chan, user, data['text'])
 
     def _start_rtm_thread(self):
         print "Slack RTM websocket URL {}".format(self.websocketData['url'])
-        coro = self._open_connection(self.websocketData['url'])
+        retry = True
+        while retry:
+            retry = False
+            try:
+                coro = self._open_connection(self.websocketData['url'])
+            except:
+                print 'connection exception attempt to reconnect in 5 seconds'
+                time.sleep( 5 )
+                retry = True
 
 class TeamProfile(BaseAPI):
     def get(self, visibility=None):
@@ -896,11 +922,11 @@ class Slacker(object):
     oauth = OAuth(timeout=DEFAULT_TIMEOUT)
 
     def __init__(self, token, incoming_webhook_url=None,
-                 timeout=DEFAULT_TIMEOUT):
+                 timeout=DEFAULT_TIMEOUT,rtm_handler=None):
         self.im = IM(token=token, timeout=timeout)
         self.api = API(token=token, timeout=timeout)
         self.dnd = DND(token=token, timeout=timeout)
-        self.rtm = RTM(token=token, timeout=timeout)
+        self.rtm = RTM(token=token, timeout=timeout, rtm_handler=rtm_handler)
         self.auth = Auth(token=token, timeout=timeout)
         self.bots = Bots(token=token, timeout=timeout)
         self.chat = Chat(token=token, timeout=timeout)
