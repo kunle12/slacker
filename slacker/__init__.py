@@ -433,7 +433,7 @@ class Files(BaseAPI):
              count=None, page=None):
         return self.get('files.list',
                         params={
-                            'user': user,
+                            'user': user,True
                             'ts_from': ts_from,
                             'ts_to': ts_to,
                             'types': types,
@@ -569,7 +569,6 @@ class RTM(BaseAPI):
             raise SlackRTMException
 
         data = None
-        self.is_running = True
         while self.is_running:
             try:
                 data = self.websocket.recv().rstrip()
@@ -615,8 +614,9 @@ class RTM(BaseAPI):
 
     def _start_rtm_thread(self):
         print "Slack RTM websocket URL {}".format(self.websocketData['url'])
+        self.is_running = True
         retry = True
-        while retry:
+        while retry and self.is_running:
             retry = False
             try:
                 coro = self._open_connection(self.websocketData['url'])
