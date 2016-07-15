@@ -433,7 +433,7 @@ class Files(BaseAPI):
              count=None, page=None):
         return self.get('files.list',
                         params={
-                            'user': user,True
+                            'user': user,
                             'ts_from': ts_from,
                             'ts_to': ts_to,
                             'types': types,
