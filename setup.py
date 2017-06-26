@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
     name='slacker',
-    version='0.9.21',
+    version='0.9.50',
     packages=['slacker'],
     description='Slack API client',
     author='Oktay Sancak',
@@ -12,7 +12,7 @@ setup(
     install_requires=['requests >= 2.2.1'],
     license='http://www.apache.org/licenses/LICENSE-2.0',
     test_suite='tests',
-    classifiers=(
+    classifiers=[
         'Intended Audience :: Developers',
         'License :: OSI Approved :: Apache Software License',
         'Natural Language :: English',
@@ -21,7 +21,9 @@ setup(
         'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.3',
-        'Programming Language :: Python :: 3.4'
-    ),
+        'Programming Language :: Python :: 3.4',
+        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6'
+    ],
     keywords='slack api'
 )
