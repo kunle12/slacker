@@ -4,6 +4,8 @@ Slacker
 
 |pypi|_
 |build status|_
+|pypi downloads|_
+|license|_
 |gitter chat|_
 
 .. image:: https://raw.githubusercontent.com/os/slacker/master/static/slacker.jpg
@@ -34,10 +36,9 @@ Examples
 
     # If you need to proxy the requests
     proxy_endpoint = 'http://myproxy:3128'
-    slack = Slacker('<your-slack-api-token-goes-here>', http_proxy=proxy_endpoint, https_proxy=proxy_endpoint)
-
-    # Send a message to #general channel
-    slack.chat.post_message('#general', 'Hello fellow slackers!', as_user=True)
+    slack = Slacker('<your-slack-api-token-goes-here>',
+                    http_proxy=proxy_endpoint,
+                    https_proxy=proxy_endpoint)
 
     # Advanced: Use `request.Session` for connection pooling (reuse)
     from requests.sessions import Session
@@ -62,7 +63,11 @@ https://api.slack.com/methods
 
 .. |build status| image:: https://img.shields.io/travis/os/slacker.svg
 .. _build status: http://travis-ci.org/os/slacker
+.. |pypi downloads| image:: https://img.shields.io/pypi/dm/slacker.svg
+.. _pypi downloads: https://pypi.org/project/slacker/
 .. |pypi| image:: https://img.shields.io/pypi/v/Slacker.svg
 .. _pypi: https://pypi.python.org/pypi/slacker/
+.. |license| image:: https://img.shields.io/github/license/os/slacker.svg
+.. _license: https://pypi.org/project/slacker/
 .. |gitter chat| image:: https://badges.gitter.im/Join%20Chat.svg
 .. _gitter chat: https://gitter.im/os/slacker?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge

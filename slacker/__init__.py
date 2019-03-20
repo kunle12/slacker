@@ -20,18 +20,20 @@ from slacker.utils import get_item_id_by_name
 from websocket import create_connection
 from ssl import SSLError
 
-__version__ = '0.9.50'
+__version__ = '0.12.0'
 
 API_BASE_URL = 'https://slack.com/api/{api}'
 DEFAULT_TIMEOUT = 10
-
+DEFAULT_RETRIES = 0
+# seconds to wait after a 429 error if Slack's API doesn't provide one
+DEFAULT_WAIT = 20
 
 __all__ = ['Error', 'Response', 'BaseAPI', 'API', 'Auth', 'Users', 'Groups',
            'Channels', 'Chat', 'IM', 'IncomingWebhook', 'Search', 'Files',
            'Stars', 'Emoji', 'Presence', 'RTM', 'Team', 'Reactions', 'Pins',
            'UserGroups', 'UserGroupsUsers', 'MPIM', 'OAuth', 'DND', 'Bots',
            'FilesComments', 'Reminders', 'TeamProfile', 'UsersProfile',
-           'IDPGroups', 'Slacker']
+           'IDPGroups', 'Apps', 'AppsPermissions', 'Slacker', 'Dialog']
 
 
 class Error(Exception):
@@ -51,22 +53,45 @@ class Response(object):
 
 class BaseAPI(object):
     def __init__(self, token=None, timeout=DEFAULT_TIMEOUT, proxies=None,
-                 session=None):
+                 session=None, rate_limit_retries=DEFAULT_RETRIES):
         self.token = token
         self.timeout = timeout
         self.proxies = proxies
         self.session = session
+        self.rate_limit_retries = rate_limit_retries
 
     def _request(self, method, api, **kwargs):
         if self.token:
             kwargs.setdefault('params', {})['token'] = self.token
 
-        response = method(API_BASE_URL.format(api=api),
-                          timeout=self.timeout,
-                          proxies=self.proxies,
-                          **kwargs)
+        # while we have rate limit retries left, fetch the resource and back
+        # off as Slack's HTTP response suggests
+        for retry_num in range(self.rate_limit_retries):
+            response = method(API_BASE_URL.format(api=api),
+                              timeout=self.timeout,
+                              proxies=self.proxies,
+                              **kwargs)
 
-        response.raise_for_status()
+            if response.status_code == requests.codes.ok:
+                break
+
+            # handle HTTP 429 as documented at
+            # https://api.slack.com/docs/rate-limits
+            elif response.status_code == requests.codes.too_many: # HTTP 429
+                time.sleep(int(response.headers.get('retry-after', DEFAULT_WAIT)))
+                continue
+
+            else:
+                response.raise_for_status()
+
+        else:
+            # with no retries left, make one final attempt to fetch the resource,
+            # but do not handle too_many status differently
+            response = method(API_BASE_URL.format(api=api),
+                              timeout=self.timeout,
+                              proxies=self.proxies,
+                              **kwargs)
+            response.raise_for_status()
 
         response = Response(response.text)
         if not response.successful:
@@ -114,6 +139,15 @@ class Auth(BaseAPI):
         return self.post('auth.revoke', data={'test': int(test)})
 
 
+class Dialog(BaseAPI):
+    def open(self, dialog, trigger_id):
+        return self.post('dialog.open',
+                         data={
+                             'dialog': json.dumps(dialog),
+                             'trigger_id': trigger_id,
+                         })
+
+
 class UsersProfile(BaseAPI):
     def get(self, user=None, include_labels=False):
         return super(UsersProfile, self).get(
@@ -158,8 +192,8 @@ class Users(BaseAPI):
     def admin(self):
         return self._admin
 
-    def info(self, user):
-        return self.get('users.info', params={'user': user})
+    def info(self, user, include_locale=False):
+        return self.get('users.info', params={'user': user, 'include_locale': include_locale})
 
     def list(self, presence=False):
         return self.get('users.list', params={'presence': int(presence)})
@@ -223,6 +257,10 @@ class Groups(BaseAPI):
     def rename(self, channel, name):
         return self.post('groups.rename',
                          data={'channel': channel, 'name': name})
+
+    def replies(self, channel, thread_ts):
+        return self.get('groups.replies',
+                        params={'channel': channel, 'thread_ts': thread_ts})
 
     def archive(self, channel):
         return self.post('groups.archive', data={'channel': channel})
@@ -291,6 +329,10 @@ class Channels(BaseAPI):
         return self.post('channels.rename',
                          data={'channel': channel, 'name': name})
 
+    def replies(self, channel, thread_ts):
+        return self.get('channels.replies',
+                        params={'channel': channel, 'thread_ts': thread_ts})
+
     def archive(self, channel):
         return self.post('channels.archive', data={'channel': channel})
 
@@ -314,7 +356,7 @@ class Chat(BaseAPI):
     def post_message(self, channel, text=None, username=None, as_user=None,
                      parse=None, link_names=None, attachments=None,
                      unfurl_links=None, unfurl_media=None, icon_url=None,
-                     icon_emoji=None, thread_ts=None):
+                     icon_emoji=None, thread_ts=None, reply_broadcast=None):
 
         # Ensure attachments are json encoded
         if attachments:
@@ -334,7 +376,8 @@ class Chat(BaseAPI):
                              'unfurl_media': unfurl_media,
                              'icon_url': icon_url,
                              'icon_emoji': icon_emoji,
-                             'thread_ts': thread_ts
+                             'thread_ts': thread_ts,
+                             'reply_broadcast': reply_broadcast
                          })
 
     def me_message(self, channel, text):
@@ -372,6 +415,41 @@ class Chat(BaseAPI):
                              'ts': ts,
                              'as_user': as_user
                          })
+
+    def post_ephemeral(self, channel, text, user, as_user=None,
+                       attachments=None, link_names=None, parse=None):
+        # Ensure attachments are json encoded
+        if attachments is not None and isinstance(attachments, list):
+            attachments = json.dumps(attachments)
+        return self.post('chat.postEphemeral',
+                         data={
+                             'channel': channel,
+                             'text': text,
+                             'user': user,
+                             'as_user': as_user,
+                             'attachments': attachments,
+                             'link_names': link_names,
+                             'parse': parse,
+                         })
+
+    def unfurl(self, channel, ts, unfurls, user_auth_message=None,
+               user_auth_required=False, user_auth_url=None):
+        return self.post('chat.unfurl',
+                         data={
+                             'channel': channel,
+                             'ts': ts,
+                             'unfurls': unfurls,
+                             'user_auth_message': user_auth_message,
+                             'user_auth_required': user_auth_required,
+                             'user_auth_url': user_auth_url,
+                         })
+
+    def get_permalink(self, channel, message_ts):
+        return self.get('chat.getPermalink',
+                        params={
+                            'channel': channel,
+                            'message_ts': message_ts
+                        })
 
 
 class IM(BaseAPI):
@@ -516,7 +594,7 @@ class Files(BaseAPI):
                         params={'file': file_, 'count': count, 'page': page})
 
     def upload(self, file_=None, content=None, filetype=None, filename=None,
-               title=None, initial_comment=None, channels=None):
+               title=None, initial_comment=None, channels=None, thread_ts=None):
         if isinstance(channels, (tuple, list)):
             channels = ','.join(channels)
 
@@ -526,12 +604,20 @@ class Files(BaseAPI):
             'filename': filename,
             'title': title,
             'initial_comment': initial_comment,
-            'channels': channels
+            'channels': channels,
+            'thread_ts': thread_ts
         }
 
         if file_:
-            with open(file_, 'rb') as f:
-                return self.post('files.upload', data=data, files={'file': f})
+            if isinstance(file_, str):
+                with open(file_, 'rb') as f:
+                    return self.post(
+                        'files.upload', data=data, files={'file': f}
+                    )
+
+            return self.post(
+                'files.upload', data=data, files={'file': file_}
+            )
         else:
             return self.post('files.upload', data=data)
 
@@ -598,8 +684,8 @@ class SlackRTMHandler(object):
         pass
 
 class RTM(BaseAPI):
-    def __init__(self, token, timeout, proxies=None, session=None, rtm_handler=None):
-        super(RTM, self).__init__(token, timeout, proxies, session)
+    def __init__(self, token, timeout, proxies=None, session=None, rate_limit_retries=DEFAULT_RETRIES, rtm_handler=None):
+        super(RTM, self).__init__(token, timeout, proxies, session, rate_limit_retries)
         self.websocketData = None
         self.rtm_thread = None
         if rtm_handler and isinstance(rtm_handler, SlackRTMHandler):
@@ -721,9 +807,13 @@ class Team(BaseAPI):
     def info(self):
         return self.get('team.info')
 
-    def access_logs(self, count=None, page=None):
+    def access_logs(self, count=None, page=None, before=None):
         return self.get('team.accessLogs',
-                        params={'count': count, 'page': page})
+                        params={
+                            'count': count,
+                            'page': page,
+                            'before': before
+                        })
 
     def integration_logs(self, service_id=None, app_id=None, user=None,
                          change_type=None, count=None, page=None):
@@ -985,6 +1075,39 @@ class OAuth(BaseAPI):
                              'redirect_uri': redirect_uri
                          })
 
+    def token(self, client_id, client_secret, code, redirect_uri=None,
+              single_channel=None):
+        return self.post('oauth.token',
+                         data={
+                             'client_id': client_id,
+                             'client_secret': client_secret,
+                             'code': code,
+                             'redirect_uri': redirect_uri,
+                             'single_channel': single_channel,
+                         })
+
+
+class AppsPermissions(BaseAPI):
+    def info(self):
+        return self.get('apps.permissions.info')
+
+    def request(self, scopes, trigger_id):
+        return self.post('apps.permissions.request',
+                         data={
+                             scopes: ','.join(scopes),
+                             trigger_id: trigger_id,
+                         })
+
+
+class Apps(BaseAPI):
+    def __init__(self, *args, **kwargs):
+        super(Apps, self).__init__(*args, **kwargs)
+        self._permissions = AppsPermissions(*args, **kwargs)
+
+    @property
+    def permissions(self):
+        return self._permissions
+
 
 class IncomingWebhook(object):
     def __init__(self, url=None, timeout=DEFAULT_TIMEOUT, proxies=None):
@@ -1009,7 +1132,7 @@ class Slacker(object):
 
     def __init__(self, token, incoming_webhook_url=None,
                  timeout=DEFAULT_TIMEOUT, http_proxy=None, https_proxy=None,
-                 session=None, rtm_handler=None):
+                 session=None, rate_limit_retries=DEFAULT_RETRIES, rtm_handler=None):
 
         proxies = self.__create_proxies(http_proxy, https_proxy)
         api_args = {
@@ -1017,14 +1140,17 @@ class Slacker(object):
             'timeout': timeout,
             'proxies': proxies,
             'session': session,
+            'rate_limit_retries': rate_limit_retries,
         }
         self.im = IM(**api_args)
         self.api = API(**api_args)
         self.dnd = DND(**api_args)
-        self.rtm = RTM(token=token, timeout=timeout, proxies=proxies, session=session, rtm_handler=rtm_handler)
+        self.rtm = RTM(token=token, timeout=timeout, proxies=proxies, session=session, rate_limit_retries=rate_limit_retries, rtm_handler=rtm_handler)
+        self.apps = Apps(**api_args)
         self.auth = Auth(**api_args)
         self.bots = Bots(**api_args)
         self.chat = Chat(**api_args)
+        self.dialog = Dialog(**api_args)
         self.team = Team(**api_args)
         self.pins = Pins(**api_args)
         self.mpim = MPIM(**api_args)

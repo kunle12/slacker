@@ -1,15 +1,17 @@
 language: python
 
+python:
+  - "2.6"
+  - "2.7"
+  - "3.4"
+  - "3.5"
+  - "3.6"
+  - "3.7-dev"
+
 sudo: false
-env:
-    - TOXENV=py26
-    - TOXENV=py27
-    - TOXENV=py33
-    - TOXENV=py34
-    - TOXENV=pypy
 
 install:
-    - travis_retry pip install tox
+  - pip install -r requirements-dev.txt
 
 script:
-    - travis_retry tox
+  - pytest
